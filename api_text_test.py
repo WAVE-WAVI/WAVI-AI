@@ -2,10 +2,11 @@
 
 import requests
 import json
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
-API_KEY = "AIzaSyBJvVjKytId_1XgU4RqugiSWnHij-KUU7k"  
+API_KEY = os.getenv("API_KEY")  
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
 PROMPT = '''WAVI 앱 - 실패 기반 습관 관리 LLM 명세서
