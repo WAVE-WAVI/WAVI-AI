@@ -1,2 +1,4 @@
 # Ignore environment variable files
 .env
+outputs/
+data/sample_users/
