@@ -10,27 +10,29 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={API_KEY}"
 
 INPUT_DIR = "data/sample_users"
-OUTPUT_DIR = "outputs/reports"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+WEEKLY_OUTPUT_DIR = "outputs/weekly_report"
+
+# 디렉토리 생성
+os.makedirs(WEEKLY_OUTPUT_DIR, exist_ok=True)
 
 def extract_last_7_days_logs(logs):
     today = datetime.today().date()
-    seven_days_ago = today - timedelta(days=60)
+    seven_days_ago = today - timedelta(days=7)
     return [
         log for log in logs
         if seven_days_ago <= datetime.strptime(log["date"], "%Y-%m-%d").date() <= today
     ]
 
-def build_prompt(user_data, weekly_logs):
+def build_weekly_prompt(user_data, weekly_logs):
     nickname = user_data.get("nickname", f"{user_data['user_id']}님")
     return f"""
 당신은 사용자 맞춤형 습관 코치입니다. 아래는 최근 7일간의 습관 기록입니다.
-이 데이터를 바탕으로 다음 내용을 포함한 **친근하고 따뜻한 말투**로 리포트를 작성해주세요:
+이 데이터를 바탕으로 다음 내용을 포함한 **친근하고 따뜻한 말투**로 주간 리포트를 작성해주세요:
 
 **[요청 항목]**
-1. {nickname}의 습관 수행 전체 요약  
+1. {nickname}의 이번 주 습관 수행 전체 요약  
 2. 자주 실패한 원인과 분석  
-3. 시간대/요일별 습관 성공/실패 패턴  
+3. 요일별 습관 성공/실패 패턴  
 4. 공감과 위로의 메시지  
 5. 다음 주를 위한 현실적이고 응원하는 제안  
 
@@ -68,21 +70,19 @@ def main():
         with open(os.path.join(INPUT_DIR, filename), "r", encoding="utf-8") as f:
             user_data = json.load(f)
 
+        # 주간 리포트 생성 (최근 7일)
         weekly_logs = extract_last_7_days_logs(user_data["habit_log"])
-
-        if not weekly_logs:
-            print(f"⚠️ {filename}: 최근 7일간 기록 없음")
-            continue
-
-        prompt = build_prompt(user_data, weekly_logs)
-        print(f"📡 LLM 호출 중: {filename}")
-        response_text = call_gemini(prompt)
-
-        output_path = os.path.join(OUTPUT_DIR, filename.replace(".json", "_llm_report.md"))
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(response_text)
-
-        print(f"✅ 저장 완료: {output_path}")
+        if weekly_logs:
+            weekly_prompt = build_weekly_prompt(user_data, weekly_logs)
+            print(f"📡 주간 리포트 LLM 호출 중: {filename}")
+            weekly_response = call_gemini(weekly_prompt)
+            
+            weekly_output_path = os.path.join(WEEKLY_OUTPUT_DIR, filename.replace(".json", "_weekly_report.md"))
+            with open(weekly_output_path, "w", encoding="utf-8") as f:
+                f.write(weekly_response)
+            print(f"✅ 주간 리포트 저장 완료: {weekly_output_path}")
+        else:
+            print(f"⚠️ {filename}: 최근 7일간 기록 없음 (주간 리포트 건너뜀)")
 
 if __name__ == "__main__":
-    main()
+    main() 
