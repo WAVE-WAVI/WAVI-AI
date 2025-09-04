@@ -89,7 +89,7 @@ def build_habit_prompt(user_message):
 
 **부족 정보 처리 예시:**
 - "코딩 1시간씩 하고 싶어"
-  → {{"icon": "💻", "name": "코딩 1시간", "start_time": null, "end_time": null, "day_of_week": null, "need_more_info": true, "ask": "시작 시간(HH:MM), 종료 시간(HH:MM), 요일(숫자 배열 1-7)을 알려주세요."}}
+  → {{"icon": "💻", "name": "코딩 1시간", "start_time": null, "end_time": null, "day_of_week": null, "need_more_info": true, "ask": "시작 시간, 종료 시간, 요일을 알려주세요."}}
 """
 
 def generate_habit_from_message(user_message):
