@@ -24,13 +24,26 @@ def call_gemini(prompt):
     else:
         return f"[API 오류]: {response.status_code} - {response.text}"
 
-def build_habit_prompt(user_message):
+def build_habit_prompt(history, currentPrompt):
     """습관 등록을 위한 프롬프트 생성"""
+    # history는 리스트 혹은 문자열일 수 있음
+    if isinstance(history, list):
+        history_text = "\n".join([f"- {item}" for item in history]) if history else "(없음)"
+    else:
+        history_text = str(history) if history else "(없음)"
+
+    current_text = str(currentPrompt) if currentPrompt is not None else ""
+
     return f"""
+다음의 대화 history와 현재 발화(currentPrompt)를 모두 함께 고려하여 습관을 등록하세요. 필요한 정보가 부족하면 한 번에 모두 물어보도록 `ask`를 구성하세요.
+
 당신은 습관 등록 전문가입니다. 사용자가 입력한 자연어 메시지를 분석하여 습관 정보를 구조화된 JSON 형태로 변환해주세요.
 
-**입력된 사용자 메시지:**
-{user_message}
+**대화 History:**
+{history_text}
+
+**현재 발화(currentPrompt):**
+{current_text}
 
 **출력 형식 (JSON):**
 {{
@@ -95,7 +108,15 @@ def build_habit_prompt(user_message):
 def generate_habit_from_message(user_message):
     """사용자 메시지로부터 습관 정보 생성"""
     try:
-        prompt = build_habit_prompt(user_message)
+        # 입력 유연성: 문자열 또는 {history, currentPrompt}
+        if isinstance(user_message, dict):
+            history = user_message.get("history", [])
+            current_prompt = user_message.get("currentPrompt", "")
+        else:
+            history = []
+            current_prompt = user_message
+
+        prompt = build_habit_prompt(history, current_prompt)
         response = call_gemini(prompt)
         
         # API 키 확인
@@ -139,19 +160,46 @@ def generate_habit_from_message(user_message):
 
 def main():
     """테스트용 메인 함수"""
-    # 테스트 메시지들
+    # 테스트 입력들 (history + currentPrompt 형식)
     test_messages = [
-        "코딩 1시간씩 하고 싶어",
-        "월수금 운동 30분씩 할래",
-        "평일 오후 2시에 책 읽기 30분",
-        "주말 아침 8시에 요가 1시간",
-        "매일 밤 10시에 일기 쓰기 15분"
+        {
+            "currentPrompt": "매일 아침 9시부터",
+            "history": [
+                "User: 코딩 1시간 하고 싶어",
+                "AI: 언제 하실 건가요? 시작 시간과 요일을 알려주세요."
+            ]
+        },
+        {
+            "currentPrompt": "월수금 저녁 7시부터",
+            "history": [
+                "User: 운동 30분씩 할래",
+                "AI: 요일과 시작 시간을 알려주세요."
+            ]
+        },
+        {
+            "currentPrompt": "평일 오후 2시",
+            "history": [
+                "User: 책 읽기 30분",
+                "AI: 시작 시간과 요일이 어떻게 되나요?"
+            ]
+        },
+        {
+            "currentPrompt": "주말 아침 8시",
+            "history": [
+                "User: 요가 1시간",
+                "AI: 어떤 요일에 진행할까요?"
+            ]
+        },
+        {
+            "currentPrompt": "매일 밤 10시 일기 쓰기 15분",
+            "history": []
+        }
     ]
     
     print("🧪 습관 등록 테스트 시작...\n")
     
     for i, message in enumerate(test_messages, 1):
-        print(f"테스트 {i}: {message}")
+        print(f"테스트 {i}: {json.dumps(message, ensure_ascii=False)}")
         result = generate_habit_from_message(message)
         
         if "error" in result:
