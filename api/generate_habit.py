@@ -49,8 +49,8 @@ def build_habit_prompt(history, currentPrompt):
 {{
     "icon": "습관에 맞는 아이콘 (예: 💻, 🏃, 📚, 🎵, 🍎, 💪, 🧘, ☕, 🚶, 🎨)",
     "name": "습관 이름 (어떤 습관을 몇분/몇회 하겠다)",
-    "start_time": 시작 시간 (HH:MM:SS 형식),
-    "end_time": 시작 시간 (HH:MM:SS 형식),
+    "start_time": 수행 가능 시작 시간 (HH:MM:SS 형식),
+    "end_time": 수행 가능 종료 시간 (HH:MM:SS 형식),
     "day_of_week": [요일 배열 (1=월, 2=화, 3=수, 4=목, 5=금, 6=토, 7=일)]
 }}
 
@@ -70,11 +70,11 @@ def build_habit_prompt(history, currentPrompt):
    - "팔굽혀펴기 30개" (횟수 기반)
    - "책 읽기 1시간" (시간 기반)
 
-3. **start_time**: 습관 시작 시간 (HH:MM:SS 형식)
-   - 09:00:00
+3. **start_time**: 습관 수행 가능 시작 시간 (HH:MM:SS 형식)
+   - 09:00:00 (이 시간부터 습관 수행 가능)
 
-4. **end_time**: 습관 종료 시간 (HH:MM:SS 형식)
-   - 10:00:00
+4. **end_time**: 습관 수행 가능 종료 시간 (HH:MM:SS 형식)
+   - 11:00:00 (이 시간까지 습관 수행 가능)
 
 5. **day_of_week**: 요일 배열
    - [1, 3, 5] (월, 수, 금)
@@ -83,26 +83,30 @@ def build_habit_prompt(history, currentPrompt):
 
 **예시:**
 - "매일 아침 9시에 코딩 1시간씩 하고 싶어"
-  → {{"icon": "💻", "name": "코딩 1시간", "start_time": ["09:00"], "end_time": ["10:00"], "day_of_week": [1, 2, 3, 4, 5, 6, 7]}}
+  → {{"icon": "💻", "name": "코딩 1시간", "start_time": "09:00:00", "end_time": "10:00:00", "day_of_week": [1, 2, 3, 4, 5, 6, 7]}}
 
-- "월수금 저녁 7시에 운동 30분씩 할래"
-  → {{"icon": "💪", "name": "운동 30분", "start_time": ["19:00"], "end_time": ["19:30"], "day_of_week": [1, 3, 5]}}
+- "오전 9시~11시 사이에 코딩 1시간"
+  → {{"icon": "💻", "name": "코딩 1시간", "start_time": "09:00:00", "end_time": "11:00:00", "day_of_week": [1, 2, 3, 4, 5, 6, 7]}}
+
+- "월수금 저녁 7시~9시 사이에 운동 30분"
+  → {{"icon": "💪", "name": "운동 30분", "start_time": "19:00:00", "end_time": "21:00:00", "day_of_week": [1, 3, 5]}}
 
 **중요사항:**
 - 반드시 유효한 JSON 형식으로 출력
 - 시간은 24시간 형식 (HH:MM:SS)
 - 요일은 숫자로 표현 (1=월요일, 7=일요일)
 - 사용자가 명시하지 않은 정보는 임의로 추정하지 마세요
+- start_time과 end_time은 습관을 수행할 수 있는 시간 범위를 나타냅니다 (예: 9시~11시 사이에 언제든 1시간 코딩)
 - 필수 필드 중 하나라도 확실히 채울 수 없으면 다음 규칙을 따르세요:
   1) 모든 필수 키(`icon`, `name`, `start_time`, `end_time`, `day_of_week`)는 반드시 포함하되, 알 수 없는 값은 null 로 설정
   2) 다음 보조 키를 함께 포함: `need_more_info`: true, `ask`: "누락된 모든 정보를 한 번에 요청하는 한국어 한 문장"
-  3) `ask`에는 구체적으로 어떤 항목이 필요한지 함께 명시 (예: "시작 시간, 종료 시간, 요일을 알려주세요.")
+  3) `ask`에는 구체적으로 어떤 항목이 필요한지 함께 명시 (예: "수행 가능한 시간 범위(시작~종료 시간)와 요일을 알려주세요.")
 - 모든 정보가 충분하면 `need_more_info`는 false 로 설정하거나 생략해도 됩니다
 - 오직 JSON만 출력하고 다른 설명은 포함하지 마세요
 
 **부족 정보 처리 예시:**
 - "코딩 1시간씩 하고 싶어"
-  → {{"icon": "💻", "name": "코딩 1시간", "start_time": null, "end_time": null, "day_of_week": null, "need_more_info": true, "ask": "시작 시간, 종료 시간, 요일을 알려주세요."}}
+  → {{"icon": "💻", "name": "코딩 1시간", "start_time": null, "end_time": null, "day_of_week": null, "need_more_info": true, "ask": "수행 가능한 시간 범위(시작~종료 시간)와 요일을 알려주세요."}}
 """
 
 def generate_habit_from_message(user_message):
@@ -163,35 +167,35 @@ def main():
     # 테스트 입력들 (history + currentPrompt 형식)
     test_messages = [
         {
-            "currentPrompt": "매일 아침 9시부터",
+            "currentPrompt": "오전 9시~11시 사이에",
             "history": [
                 "User: 코딩 1시간 하고 싶어",
-                "AI: 언제 하실 건가요? 시작 시간과 요일을 알려주세요."
+                "AI: 언제 하실 건가요? 수행 가능한 시간 범위와 요일을 알려주세요."
             ]
         },
         {
-            "currentPrompt": "월수금 저녁 7시부터",
+            "currentPrompt": "월수금 저녁 7시~9시 사이에",
             "history": [
                 "User: 운동 30분씩 할래",
-                "AI: 요일과 시작 시간을 알려주세요."
+                "AI: 요일과 수행 가능한 시간 범위를 알려주세요."
             ]
         },
         {
-            "currentPrompt": "평일 오후 2시",
+            "currentPrompt": "평일 오후 2시~4시 사이에",
             "history": [
                 "User: 책 읽기 30분",
-                "AI: 시작 시간과 요일이 어떻게 되나요?"
+                "AI: 수행 가능한 시간 범위와 요일이 어떻게 되나요?"
             ]
         },
         {
-            "currentPrompt": "주말 아침 8시",
+            "currentPrompt": "주말 아침 8시~10시 사이에",
             "history": [
                 "User: 요가 1시간",
-                "AI: 어떤 요일에 진행할까요?"
+                "AI: 어떤 요일에 진행할까요? 수행 가능한 시간 범위도 알려주세요."
             ]
         },
         {
-            "currentPrompt": "매일 밤 10시 일기 쓰기 15분",
+            "currentPrompt": "매일 밤 10시~11시 사이에 일기 쓰기 15분",
             "history": []
         }
     ]

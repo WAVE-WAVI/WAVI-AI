@@ -39,6 +39,53 @@ def call_gemini(prompt):
     else:
         return f"[API 오류] {response.status_code}: {response.text}"
 
+def generate_recommendation_for_user(user_data):
+    """API 호출을 위한 추천 생성 함수"""
+    try:
+        # 사용자 데이터에서 습관 정보 추출
+        user_id = user_data["user_id"]
+        nickname = user_data.get("nickname", f"사용자{user_id}")
+        
+        # 실패 로그가 있는 습관들 찾기
+        failed_habits = []
+        for habit in user_data["habits"]:
+            habit_logs = habit.get("habit_log", [])
+            failed_logs = [log for log in habit_logs if not log.get("completed", False)]
+            if failed_logs:
+                failed_habits.append({
+                    "habit_id": habit["habit_id"],
+                    "name": habit["name"],
+                    "habit_log": failed_logs
+                })
+        
+        if failed_habits:
+            # 실패 패턴을 분석하여 추천 생성
+            prompt = f"""
+당신은 습관 형성 전문가입니다. {nickname}님의 습관 실패 패턴을 분석하여 
+개인화된 습관 개선 방안을 제시해주세요.
+
+<사용자 정보>
+이름: {nickname}
+나이: {user_data.get('age', '정보 없음')}세
+직업: {user_data.get('occupation', '정보 없음')}
+
+<실패한 습관들>
+{json.dumps(failed_habits, ensure_ascii=False, indent=2)}
+
+위 데이터를 바탕으로 다음을 포함한 친근하고 구체적인 추천을 제공해주세요:
+1. 실패 패턴 분석
+2. 개선을 위한 구체적인 전략
+3. 새로운 습관 형성 방법
+4. 동기부여 메시지
+
+출력은 자연스러운 한국어로 작성해주세요.
+"""
+            return call_gemini(prompt)
+        else:
+            return f"{nickname}님은 최근 습관 실패 기록이 없어서 특별한 추천이 필요하지 않습니다. 현재 잘 하고 계세요!"
+    except Exception as e:
+        return f"추천 생성 중 오류가 발생했습니다: {str(e)}"
+
 def main():
     for filename in os.listdir(DATA_DIR):
         if not filename.endswith(".json"):
@@ -48,15 +95,8 @@ def main():
         with open(filepath, "r", encoding="utf-8") as f:
             user_data = json.load(f)
 
-        prompt = PROMPT_TEMPLATE.format(
-            user_id=user_data["user_id"],
-            habit_id=user_data["habit_id"],
-            name=user_data["name"],
-            habit_log=json.dumps(user_data["habit_log"], ensure_ascii=False)
-        )
-
         print(f"⏳ {filename} 호출 중...")
-        response_text = call_gemini(prompt)
+        response_text = generate_recommendation_for_user(user_data)
 
         output_path = os.path.join(OUTPUT_DIR, filename.replace(".json", "_recommendation.json"))
         with open(output_path, "w", encoding="utf-8") as f:
