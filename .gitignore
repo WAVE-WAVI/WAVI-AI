@@ -1,4 +1,5 @@
-# Ignore environment variable files
-.env
+api/__pycache__
+app/__pycache__
+data/sample_users
 outputs/
-data/sample_users/
+.env
