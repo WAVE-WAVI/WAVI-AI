@@ -2,9 +2,9 @@
 # ------------------------------------------------------------
 # FastAPI 엔드포인트: 통합 리포트 생성 (파일 스캔 / 단건 생성)
 # - GET  /health          : 상태 체크
-# - GET  /reports/list    : 생성된 리포트 파일 목록
-# - POST /reports/run     : data/ 폴더 스캔해서 각 파일의 type(weekly/monthly)로 리포트 생성
-# - POST /reports/generate: 요청 본문(단일 사용자 통합 스키마)으로 즉시 생성
+# - GET  /reports/list    : data/ 폴더 내 JSON 파일 목록
+# - POST /reports/run     : data/ 폴더 스캔해서 각 파일의 type(weekly/monthly)로 리포트 생성 후 바로 반환
+# - POST /reports/generate: 요청 본문(단일 사용자 통합 스키마)으로 즉시 생성 후 바로 반환
 # ------------------------------------------------------------
 
 from typing import List, Optional, Dict, Any
@@ -22,18 +22,12 @@ from api.generate_report import (
     add_minutes,
     extract_json_safely,
     minutes_filter_copy,
-    OUTPUT_DIRS,
 )
 
-# 입력/출력 디렉토리 (현재는 로컬의 data 폴더 사용) 
+# 입력 디렉토리 (로컬 data 폴더)
 INPUT_DIR = "data"
 
-app = FastAPI(title="Unified Habit Report API", version="1.1.1")
-
-# 출력 디렉토리 보장
-for _dir in OUTPUT_DIRS.values():
-    os.makedirs(_dir, exist_ok=True)
-
+app = FastAPI(title="Unified Habit Report API", version="1.2.0")
 
 # ===================== Pydantic 모델 =====================
 
@@ -66,8 +60,7 @@ class GenerateRunResponseItem(BaseModel):
     user_id: int
     nickname: str
     report_type: str
-    json_path: str
-    report_json: Optional[Dict[str, Any]] = None
+    report_json: Dict[str, Any]
 
 
 class GenerateRunResponse(BaseModel):
@@ -75,7 +68,6 @@ class GenerateRunResponse(BaseModel):
 
 
 # ===================== 내부 유틸 =====================
-# recommendationa 후보정 과정
 def _postprocess_recommendations(parsed: Dict[str, Any], active_habits: List[Dict[str, Any]]) -> None:
     """
     recommendation 보정:
@@ -144,21 +136,12 @@ def _period_by_filter_days(filter_days: int):
     return str(start_date), str(end_date)
 
 
-def _ensure_and_save(report_type: str, user_id: int, nickname: str, parsed: Dict[str, Any]) -> str:
-    out_dir = OUTPUT_DIRS[report_type]
-    os.makedirs(out_dir, exist_ok=True)
-    json_name = f"user_{user_id}_{nickname}_{report_type}_report.json"
-    json_path = os.path.join(out_dir, json_name)
-    with open(json_path, "w", encoding="utf-8") as jf:
-        json.dump(parsed, jf, ensure_ascii=False, indent=2)
-    return json_path
-
-
-def _generate_for_user_bundle(bundle: Dict[str, Any], return_json: bool = False) -> GenerateRunResponseItem:
+def _generate_for_user_bundle(bundle: Dict[str, Any]) -> GenerateRunResponseItem:
     """
-    단일 사용자 통합 스키마(bundle)로 리포트 생성 후 저장/반환
+    단일 사용자 통합 스키마(bundle)로 리포트 생성 후 '바로 반환'
     - bundle['type']를 그대로 사용
     - 마지막 N일 로그만 고려 (weekly=7, monthly=30)
+    - 파일 저장 없음
     """
     try:
         report_type = (bundle.get("type") or "monthly").lower()
@@ -198,15 +181,11 @@ def _generate_for_user_bundle(bundle: Dict[str, Any], return_json: bool = False)
         # 추천 보정
         _postprocess_recommendations(parsed, active_habits)
 
-        # 저장
-        json_path = _ensure_and_save(report_type, user_id, nickname, parsed)
-
         return GenerateRunResponseItem(
             user_id=user_id,
             nickname=nickname,
             report_type=report_type,
-            json_path=json_path,
-            report_json=parsed if return_json else None,
+            report_json=parsed,
         )
 
     except HTTPException:
@@ -224,22 +203,19 @@ def health():
 
 @app.get("/reports/list")
 def list_reports():
-    """생성된 리포트 파일 경로를 모두 나열"""
-    out = []
-    for typ, d in OUTPUT_DIRS.items():
-        if not os.path.isdir(d):
-            continue
-        for fn in os.listdir(d):
-            if fn.endswith(".json"):
-                out.append(os.path.join(d, fn))
-    return {"files": sorted(out)}
+    """data/ 폴더 내 JSON 입력 파일 목록을 나열 (저장 파일 없음)"""
+    if not os.path.isdir(INPUT_DIR):
+        raise HTTPException(status_code=404, detail="data/ 폴더가 없습니다.")
+    files = [os.path.join(INPUT_DIR, fn) for fn in os.listdir(INPUT_DIR) if fn.endswith(".json")]
+    return {"files": sorted(files)}
 
 
 @app.post("/reports/run", response_model=GenerateRunResponse)
-def run_from_data(return_json: bool = False):
+def run_from_data():
     """
-    data/ 폴더를 스캔하여 각 파일의 'type' 값(weekly/monthly)에 따라 리포트 생성.
+    data/ 폴더를 스캔하여 각 파일의 'type' 값(weekly/monthly)에 따라 리포트 생성 후 바로 반환.
     - 파일 스키마는 단일 사용자 통합 스키마만 지원.
+    - 파일 저장 없음
     """
     results: List[GenerateRunResponseItem] = []
     any_found = False
@@ -256,22 +232,20 @@ def run_from_data(return_json: bool = False):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 bundle = json.load(f)
-            results.append(_generate_for_user_bundle(bundle, return_json=return_json))
+            results.append(_generate_for_user_bundle(bundle))
         except HTTPException as he:
             results.append(GenerateRunResponseItem(
                 user_id=bundle.get("user_id", -1) if isinstance(bundle, dict) else -1,
                 nickname=bundle.get("nickname", "unknown") if isinstance(bundle, dict) else "unknown",
                 report_type=(bundle.get("type") or "monthly") if isinstance(bundle, dict) else "monthly",
-                json_path="",
-                report_json={"error": he.detail} if return_json else None
+                report_json={"error": he.detail}
             ))
         except Exception as e:
             results.append(GenerateRunResponseItem(
                 user_id=bundle.get("user_id", -1) if isinstance(bundle, dict) else -1,
                 nickname=bundle.get("nickname", "unknown") if isinstance(bundle, dict) else "unknown",
                 report_type=(bundle.get("type") or "monthly") if isinstance(bundle, dict) else "monthly",
-                json_path="",
-                report_json={"error": str(e)} if return_json else None
+                report_json={"error": str(e)}
             ))
 
     if not any_found:
@@ -280,10 +254,11 @@ def run_from_data(return_json: bool = False):
 
 
 @app.post("/reports/generate", response_model=GenerateRunResponseItem)
-def generate_from_body(payload: UserPayload, return_json: bool = False):
+def generate_from_body(payload: UserPayload):
     """
-    요청 본문(단일 사용자 통합 스키마)으로 리포트를 즉시 생성.
+    요청 본문(단일 사용자 통합 스키마)으로 리포트를 즉시 생성해서 반환.
     - payload.type의 값(weekly/monthly)을 그대로 사용
+    - 파일 저장 없음
     """
     bundle = payload.dict()
-    return _generate_for_user_bundle(bundle, return_json=return_json)
+    return _generate_for_user_bundle(bundle)

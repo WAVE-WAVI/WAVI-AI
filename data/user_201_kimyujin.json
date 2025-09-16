@@ -8,7 +8,7 @@
     "habits": [
       {
         "habit_id": 2,
-        "name": "평일 오전 운동",
+        "name": "평일 오전 운동 1시간",
         "day_of_week": [1, 2, 3, 4, 5],
         "start_time": "07:00",
         "end_time": "08:00",

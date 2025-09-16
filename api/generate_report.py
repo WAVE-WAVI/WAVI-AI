@@ -15,7 +15,6 @@ import re
 from datetime import datetime, timedelta
 import requests
 from dotenv import load_dotenv
-from copy import deepcopy
 
 # ===== 환경 변수 / 경로 설정 =====
 load_dotenv()
@@ -73,20 +72,6 @@ def minutes_filter_copy(habits, days: int):
     return out
 
 
-def compute_total_time_str(habits_data):
-    """완료된 로그 기준 총 수행시간 문자열('H시간 MM분')"""
-    total_minutes = 0
-    for habit in habits_data:
-        st, et = habit.get("start_time"), habit.get("end_time")
-        if not (st and et):
-            continue
-        per_session = minutes_between(st, et)
-        done_cnt = sum(1 for log in habit.get("habit_log", []) if log.get("completed") is True)
-        total_minutes += per_session * done_cnt
-    h, m = divmod(total_minutes, 60)
-    return f"{h}시간 {m:02d}분" if h > 0 else f"{m}분"
-
-
 # ===== LLM 프롬프트 구성 =====
 def build_prompt(report_type: str, user_info: dict, habits_data: list, start_date: str, end_date: str) -> str:
     """
@@ -130,18 +115,16 @@ def build_prompt(report_type: str, user_info: dict, habits_data: list, start_dat
 
     overall_success_rate = (total_successes / total_attempts * 100) if total_attempts else 0.0
     period_label = "최근 7일" if report_type == "weekly" else "최근 30일"
-    total_time_str = compute_total_time_str(habits_data)
 
     intro = f"당신은 사용자 맞춤형 습관 코치입니다. 아래는 {nickname}의 {period_label}간 모든 습관 기록입니다."
 
-    # 프롬프트 본문
+    # 프롬프트 본문 (total_time 관련 요소 제거)
     return f"""
 {intro}
 아래 JSON 스키마에 정확히 맞춰, **친근하고 따뜻한 말투**로 결과를 생성하세요. 요약 문장은 한국어 자연문으로 작성하되, 전체 출력은 하나의 JSON만 포함하세요.
 
 반영 기간: {start_date} ~ {end_date}
 전체 성공률(참고): {overall_success_rate:.1f}%
-총 수행시간(추정): {total_time_str}
 
 <입력 습관 목록(순서 유지, 각 항목당 추천 1개 필수)>
 {json.dumps(habit_specs, ensure_ascii=False, indent=2)}
@@ -150,7 +133,6 @@ def build_prompt(report_type: str, user_info: dict, habits_data: list, start_dat
 {{
   "start_date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
-  "total_time": "총 수행시간(예: 8시간 00분)",
   "top_failure_reasons": [
     {{"habit": "습관명", "reasons": ["원인1", "원인2"]}}
   ],
@@ -179,7 +161,6 @@ def build_prompt(report_type: str, user_info: dict, habits_data: list, start_dat
 
 지침:
 - 'summary'는 하나의 문자열이어야 하며, 4개의 내용을 줄바꿈(\\n)으로 구분해 주세요.
-- 'total_time'은 완료된 로그 수 × (end−start)로 계산한 값을 사용하세요.
 - 실패 원인은 습관별로 가장 빈도가 높은 상위 2개를 선택하세요.
 - 추천은 실패 요인을 반영해 요일/시간/난이도를 조절하세요.
 - 추천의 name에는 사용자 이름/호칭을 포함하지 말고, "행동 + 시간/횟수"만 간결히 작성하세요.
