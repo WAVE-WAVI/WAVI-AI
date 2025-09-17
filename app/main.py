@@ -7,7 +7,7 @@
 # - POST /reports/generate: 요청 본문(단일 사용자 통합 스키마)으로 즉시 생성 후 바로 반환
 # ------------------------------------------------------------
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime, timedelta, date
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -70,7 +70,7 @@ class GenerateRunResponseItem(BaseModel):
     # 리포트 내용(루트에 직접 노출)
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    summary: Optional[Dict[str, Any]] = None
+    summary: Optional[Union[str, Dict[str, Any]]] = None
     top_failure_reasons: Optional[List[Dict[str, Any]]] = None
     recommendation: Optional[List[Dict[str, Any]]] = None
 
@@ -266,6 +266,18 @@ def _attach_habit_ids_to_failures(parsed: Dict[str, Any], active_habits: List[Di
                     break
         it["habit_id"] = hid if hid is not None else valid_ids[0]
 
+def _normalize_parsed_fields(parsed: Dict[str, Any]) -> None:
+    # summary가 str이면 dict로 감싸기
+    if isinstance(parsed.get("summary"), str):
+        parsed["summary"] = {"text": parsed["summary"]}
+
+    # top_failure_reasons가 dict 단일이면 리스트로 승격
+    if isinstance(parsed.get("top_failure_reasons"), dict):
+        parsed["top_failure_reasons"] = [parsed["top_failure_reasons"]]
+
+    # recommendation이 dict 단일이면 리스트로 승격
+    if isinstance(parsed.get("recommendation"), dict):
+        parsed["recommendation"] = [parsed["recommendation"]]
 
 # ===================== 리포트 생성 =====================
 
@@ -312,6 +324,7 @@ def _generate_for_user_bundle(bundle: Dict[str, Any]) -> GenerateRunResponseItem
         parsed.setdefault("end_date", end_date)
 
         # 보정 로직들
+        _normalize_parsed_fields(parsed)
         _postprocess_recommendations(parsed, active_habits)
         _attach_habit_ids_to_failures(parsed, active_habits)
 
