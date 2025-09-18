@@ -31,6 +31,28 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/app
-            docker-compose pull fastapi-app
-            docker-compose up -d --no-deps fastapi-app
+            echo "Bringing down existing containers..."
+            docker compose down
+
+            echo "Pulling latest docker image..."
+            docker compose pull fastapi-app
+
+            echo "Starting new container..."
+            docker compose up -d --no-deps fastapi-app
+
+            echo "Waiting for application to start..."
+            sleep 15 # 애플리케이션이 시작될 때까지 15초 정도 대기 (시간은 조절 필요)
+
+            echo "Checking container status..."
+            # docker ps -f "name=컨테이너_이름" 명령어로 상태를 확인하고, Up이 아니면 워크플로우를 실패 처리
+            if [ "$(docker ps -q -f name=my-fastapi-container)" ]; then
+            echo "Deployment successful!"
+            else
+            echo "Deployment failed! Container is not running."
+            # 실패한 컨테이너의 로그를 출력하여 원인 파악을 쉽게 함
+            docker logs "$(docker ps -a -q -f name=my-fastapi-container | head -n 1)"
+            exit 1
+            fi
+
+            echo "Cleaning up old images..."
             docker image prune -f
