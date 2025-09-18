@@ -31,9 +31,6 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/app
-            echo "Bringing down existing containers..."
-            docker compose down
-
             echo "Pulling latest docker image..."
             docker compose pull fastapi-app
 
