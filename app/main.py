@@ -23,7 +23,6 @@ from api.generate_report import (
     minutes_between,
     add_minutes,
     extract_json_safely,
-    # minutes_filter_copy,   # ✅ 더 이상 사용하지 않음 (상대일 제거)
 )
 
 # 입력 디렉토리 (로컬 data 폴더)
@@ -54,8 +53,7 @@ class UserPayload(BaseModel):
     birth_year: Optional[int] = None
     gender: Optional[str] = None
     job: Optional[str] = None
-    type: str = Field(..., pattern="^(weekly|monthly)$")  # 요청 본문의 type
-    # ✅ 사용자가 명시하면 그대로 사용
+    type: str = Field(..., pattern="^(WEEKLY|MONTHLY)$")  # 요청 본문의 type
     start_date: Optional[str] = None  # "YYYY-MM-DD"
     end_date: Optional[str] = None    # "YYYY-MM-DD"
     habits: List[Habit]
@@ -67,10 +65,10 @@ class GenerateRunResponseItem(BaseModel):
     nickname: str
     type: str
 
-    # 리포트 내용(루트에 직접 노출)
+    # 리포트 내용 루트에 직접 노출
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    summary: Optional[Union[str, Dict[str, Any]]] = None
+    summary: Optional[str] = None
     top_failure_reasons: Optional[List[Dict[str, Any]]] = None
     recommendation: Optional[List[Dict[str, Any]]] = None
 
@@ -267,9 +265,9 @@ def _attach_habit_ids_to_failures(parsed: Dict[str, Any], active_habits: List[Di
         it["habit_id"] = hid if hid is not None else valid_ids[0]
 
 def _normalize_parsed_fields(parsed: Dict[str, Any]) -> None:
-    # summary가 str이면 dict로 감싸기
-    if isinstance(parsed.get("summary"), str):
-        parsed["summary"] = {"text": parsed["summary"]}
+    s = parsed.get("summary")
+    if isinstance(s, dict) and "text" in s:
+        parsed["summary"] = s["text"]
 
     # top_failure_reasons가 dict 단일이면 리스트로 승격
     if isinstance(parsed.get("top_failure_reasons"), dict):
