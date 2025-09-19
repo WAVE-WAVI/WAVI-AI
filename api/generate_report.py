@@ -14,6 +14,7 @@ import json
 import re
 from datetime import datetime, timedelta
 import requests
+from collections import Counter
 from dotenv import load_dotenv
 
 # ===== 환경 변수 / 경로 설정 =====
@@ -71,6 +72,82 @@ def minutes_filter_copy(habits, days: int):
         })
     return out
 
+# ===== 실패 사유 집계 유틸 =====
+# 카테고리 라벨 
+CATEGORY_LABELS = [
+    "의지 부족",
+    "건강 문제",
+    "과도한 목표 설정",
+    "시간 부족",
+    "일정 충돌",
+    "기타 (직접 입력)",
+]
+
+# 자유 텍스트 실패 사유 → 위 6개 중 하나로 매핑
+CATEGORY_RULES = [
+    # 의지 부족: 하기 싫음/미룸/동기 저하/귀찮음 등
+    (r"(의욕\s*저하|동기\s*저하|하기\s*싫|미루|귀찮|의지\s*부족|싫어서|노트북\s*펴기\s*싫)", "의지 부족"),
+
+    # 건강 문제: 피곤/수면/컨디션/통증/질병/생리 등
+    (r"(피곤|피로|수면\s*부족|졸림|늦잠|알람\s*(못\s*들음|실패)|컨디션\s*저하|감기|두통|생리|근육통|통증|부상|과로|몸\s*상태\s*안좋)", "건강 문제"),
+
+    # 과도한 목표 설정: 강도/시간/빈도 과함, 무리, 부담
+    (r"(과도|무리|버겁|부담|강도\s*높|시간\s*너무\s*길|빈도\s*너무\s*잦|목표\s*크|빡세)", "과도한 목표 설정"),
+
+    # 시간 부족: 바쁨/업무/숙제/알바/마감/준비/출근/등교/가사 일 등
+    (r"(시간\s*부족|바쁨|바빠|업무|회사|과제|숙제|시험\s*공부|준비\s*하느라|마감|알바|출근|등교|가사|집안일)", "시간 부족"),
+
+    # 일정 충돌: 외출 약속/행사/여행/스케줄 겹침/주말 루틴 붕괴
+    (r"(일정\s*충돌|외출\s*일정|약속|행사|모임|여행|스케줄\s*겹|주말|공휴일)", "일정 충돌"),
+
+    # 날씨 등 기타 사유는 '기타 (직접 입력)'로
+    (r"(날씨|더움|추움|폭염|폭우|눈\s*옴|한파|비\s*옴)", "기타 (직접 입력)"),
+]
+
+def normalize_reason_category(text: str) -> str:
+    """자유 텍스트 실패 사유를 6개 카테고리 중 하나로 정규화."""
+    t = (text or "").strip().lower()
+    if not t:
+        return "기타 (직접 입력)"
+    t = re.sub(r"\s+", " ", t)
+    for pat, label in CATEGORY_RULES:
+        if re.search(pat, t):
+            return label
+    return "기타 (직접 입력)"
+
+def compute_per_habit_top_failure_reasons(active_habits, topk: int = 2):
+    """
+    각 습관별 실패 사유를 6개 카테고리로 정규화하여 집계 후, 상위 topk만 reasons로 반환.
+    출력 형식:
+    [
+      { "habit_id": 2, "name": "평일 오전 운동 1시간", "reasons": ["수면 부족", "날씨 더움"] }  # ← 기존 포맷 유지
+    ]
+    주의: 이제 reasons에는 '카테고리 라벨'이 들어갑니다 (예: '의지 부족', '건강 문제', ...).
+    """
+    result = []
+    for habit in active_habits:
+        hid = habit.get("habit_id")
+        name = habit.get("name") or ""
+        logs = habit.get("habit_log", [])
+
+        counter = Counter()
+        for log in logs:
+            if log.get("completed") is True:
+                continue
+            for raw in (log.get("failure_reason") or []):
+                if not isinstance(raw, str):
+                    continue
+                label = normalize_reason_category(raw)
+                counter[label] += 1
+
+        # 상위 topk 카테고리만
+        top_labels = [lbl for lbl, _ in counter.most_common(topk)]
+        result.append({
+            "habit_id": hid,
+            "name": name,
+            "reasons": top_labels
+        })
+    return result
 
 # ===== LLM 프롬프트 구성 =====
 def build_prompt(report_type: str, user_info: dict, habits_data: list, start_date: str, end_date: str) -> str:
@@ -133,12 +210,16 @@ def build_prompt(report_type: str, user_info: dict, habits_data: list, start_dat
 {{
   "start_date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
-  // ⚠️ top_failure_reasons는 입력에 없는 사유를 절대 만들어내지 마세요. 
+  // top_failure_reasons 내부의 "reasons"는 입력에 존재하는 사유를 바탕으로 원인을 작성하세요.
   "top_failure_reasons": [
-    {{"habit": "습관명", "reasons": ["원인1", "원인2"]}}
+    {{
+        "habit_id": {habit_specs[0]['habit_id'] if habit_specs else 0},
+        "name": "간결한 습관명 (예: 실내 스트레칭 15분)",
+        "reasons": ["원인1", "원인2"]
+        }}
   ],
   // summary는 하나의 문자열이며, 줄바꿈(\\n)으로 아래 4개의 내용을 순서대로 이어붙여 주세요.
-  // 1) 각 습관별 성공률과 주요 성과 분석
+  // 1) 각 습관별 성공률(퍼센트, 수행 횟수/목표 횟수)과 주요 성과 분석
   // 2) 자주 실패한 원인과 습관 간 상관관계 분석
   // 3) 요일별 전체 습관 성공/실패 패턴
   // 4) 공감과 위로의 메세지
@@ -161,9 +242,9 @@ def build_prompt(report_type: str, user_info: dict, habits_data: list, start_dat
 }}
 
 지침:
+- 'top_failure_reasons'는 습관별로 가장 빈도가 높은 상위 2개를 선택하고, 입력에 존재하는 사유를 바탕으로 원인을 작성하세요.
 - 'summary'는 하나의 문자열이어야 하며, 4개의 내용을 줄바꿈(\\n)으로 구분해 주세요.
-- 실패 원인은 습관별로 가장 빈도가 높은 상위 2개를 선택하세요.
-- 추천은 실패 요인을 반영해 요일/시간/난이도를 조절하세요.
+- 'recommendation'은 실패 요인을 반영해 요일/시간/난이도를 조절하세요.
 - 추천의 name에는 사용자 이름/호칭을 포함하지 말고, "행동 + 시간/횟수"만 간결히 작성하세요.
 - **recommendation은 입력 습관의 개수와 동일한 개수로 생성하고, 각 항목의 habit_id는 해당 입력 습관의 habit_id와 일치시키세요.**
 - **recommendation 배열의 항목 순서는 반드시 입력 습관 배열의 순서를 따르세요.**

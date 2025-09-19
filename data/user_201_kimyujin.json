@@ -14,7 +14,7 @@
         "end_time": "08:00",
         "habit_log": [
           { "date": "2025-08-01", "completed": true },
-          { "date": "2025-08-04", "completed": false, "failure_reason": ["수면 부족"] },
+          { "date": "2025-08-04", "completed": false, "failure_reason": ["의지 부족", "시간 부족"] },
           { "date": "2025-08-05", "completed": true },
           { "date": "2025-08-06", "completed": false, "failure_reason": ["컨디션 저하"] },
           { "date": "2025-08-07", "completed": true },

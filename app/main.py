@@ -23,6 +23,7 @@ from api.generate_report import (
     minutes_between,
     add_minutes,
     extract_json_safely,
+    compute_per_habit_top_failure_reasons,
 )
 
 # 입력 디렉토리 (로컬 data 폴더)
@@ -320,6 +321,7 @@ def _generate_for_user_bundle(bundle: Dict[str, Any]) -> GenerateRunResponseItem
         parsed = json.loads(json_text)
         parsed.setdefault("start_date", start_date)
         parsed.setdefault("end_date", end_date)
+        parsed["top_failure_reasons"] = compute_per_habit_top_failure_reasons(active_habits, topk=2)
 
         # 보정 로직들
         _normalize_parsed_fields(parsed)
