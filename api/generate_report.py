@@ -133,6 +133,7 @@ def build_prompt(report_type: str, user_info: dict, habits_data: list, start_dat
 {{
   "start_date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
+  // ⚠️ top_failure_reasons는 입력에 없는 사유를 절대 만들어내지 마세요. 
   "top_failure_reasons": [
     {{"habit": "습관명", "reasons": ["원인1", "원인2"]}}
   ],

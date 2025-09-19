@@ -68,8 +68,8 @@ class GenerateRunResponseItem(BaseModel):
     # 리포트 내용 루트에 직접 노출
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    summary: Optional[str] = None
     top_failure_reasons: Optional[List[Dict[str, Any]]] = None
+    summary: Optional[str] = None
     recommendation: Optional[List[Dict[str, Any]]] = None
 
     # 오류시 루트에 배치
