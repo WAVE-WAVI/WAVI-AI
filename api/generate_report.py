@@ -160,7 +160,7 @@ def compute_per_habit_top_failure_reasons(active_habits, topk=2):
         for r in final_reasons:
             norm = normalize_reason_category(r)
             icon = guess_emoji_from_text(r) if norm == "기타 (직접 입력)" else REASON_ICON_MAP.get(norm, "💬")
-            reasons.append([r, icon])
+            reasons.append({"reason": r, "icon": icon})
         result.append({"habit_id": hid, "name": name, "reasons": reasons})
     return result
 
