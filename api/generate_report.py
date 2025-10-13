@@ -48,7 +48,35 @@ def guess_emoji_from_text(text: str) -> str:
 
 # ===== 시간 유틸 =====
 def parse_hhmm(s: str):
-    return datetime.combine(datetime.today().date(), datetime.strptime(s, "%H:%M").time())
+    """
+    입력: 'HH:MM' 또는 'HH:MM:SS' 모두 허용
+    반환: 오늘 날짜의 datetime (시간/분만 사용)
+    """
+    t = (s or "").strip()
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            tm = datetime.strptime(t, fmt).time()
+            # seconds는 버리고 분 단위까지만 사용
+            tm = tm.replace(second=0, microsecond=0)
+            return datetime.combine(datetime.today().date(), tm)
+        except ValueError:
+            continue
+
+    # 여전히 실패하면 콜론 분해로 최후 시도
+    try:
+        parts = [int(p) for p in t.split(":")]
+        if len(parts) >= 2:
+            hh, mm = parts[0], parts[1]
+            return datetime.combine(datetime.today().date(),
+                                    datetime.strptime(f"{hh:02d}:{mm:02d}", "%H:%M").time())
+    except Exception:
+        pass
+    raise ValueError(f"Invalid time format: {s!r} (expected HH:MM or HH:MM:SS)")
+
+def normalize_hhmm(s: str) -> str:
+    """'HH:MM' 또는 'HH:MM:SS' -> 항상 'HH:MM'"""
+    dt = parse_hhmm(s)
+    return dt.strftime("%H:%M")
 
 def minutes_between(start_hhmm: str, end_hhmm: str) -> int:
     delta = parse_hhmm(end_hhmm) - parse_hhmm(start_hhmm)

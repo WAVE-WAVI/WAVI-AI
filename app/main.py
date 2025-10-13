@@ -82,6 +82,46 @@ def _calc_period_by_type(report_type: str):
     start_date = end_date - timedelta(days=days)
     return str(start_date), str(end_date), days
 
+
+def _normalize_times_in_habits(habits: List[dict]) -> List[dict]:
+    """
+    각 habit의 start_time/end_time을 'HH:MM'로 정규화.
+    'HH:MM:SS'가 들어와도 문제 없도록 통일.
+    실패 시 원본을 그대로 둠(보수적).
+    """
+    normed = []
+    for h in habits or []:
+        h2 = dict(h)  # 얕은 복사
+        for key in ("start_time", "end_time"):
+            val = h2.get(key)
+            if isinstance(val, str):
+                t = val.strip()
+                # 시도1: HH:MM
+                try:
+                    dt = datetime.strptime(t, "%H:%M")
+                    h2[key] = dt.strftime("%H:%M")
+                    continue
+                except ValueError:
+                    pass
+                # 시도2: HH:MM:SS
+                try:
+                    dt = datetime.strptime(t, "%H:%M:%S")
+                    h2[key] = dt.strftime("%H:%M")  # 분까지만
+                    continue
+                except ValueError:
+                    pass
+                # 시도3: 콜론 분해(예: '21:5:00' → '21:05')
+                try:
+                    parts = [int(p) for p in t.split(":")]
+                    if len(parts) >= 2:
+                        hh, mm = parts[0], parts[1]
+                        h2[key] = f"{hh:02d}:{mm:02d}"
+                except Exception:
+                    # 그대로 둠
+                    pass
+        normed.append(h2)
+    return normed
+
 def _generate_for_bundle(bundle: Dict[str, Any]) -> GenerateRunResponseItem:
     """generate_report.py 로직 기반으로 즉시 리포트 생성"""
     try:
@@ -92,6 +132,7 @@ def _generate_for_bundle(bundle: Dict[str, Any]) -> GenerateRunResponseItem:
         user_id = bundle["user_id"]
         nickname = bundle.get("nickname", str(user_id))
         habits_all = bundle.get("habits", [])
+        habits_all = _normalize_times_in_habits(habits_all)
         start_date, end_date, filter_days = _calc_period_by_type(t)
 
         # 로그 필터링
