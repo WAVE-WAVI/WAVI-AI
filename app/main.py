@@ -155,8 +155,8 @@ def _generate_for_bundle(bundle: Dict[str, Any]) -> GenerateRunResponseItem:
         level = consistency_level_from_rate(rate)
         parsed["consistency_index"] = {
             "success_rate": round(rate, 1),
-            "level": level,
-            "thresholds": CONSISTENCY_THRESHOLDS,
+            # "level": level,
+            # "thresholds": CONSISTENCY_THRESHOLDS,
             "display_message": f"꾸준함 지수: {level}" +
                                (" 🔥" if level == "높음" else (" 🙂" if level == "보통" else " 🌧️"))
         }
