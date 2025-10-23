@@ -2,6 +2,7 @@
 """
 통합 리포트 생성기 (주간/월간 리포트 통합)
 - 꾸준함 지수 + 아이콘 + summary + recommendation (weekly/monthly 공통 구조)
+- summary 4문장에 BJ Fogg 행동모델(B=MAP) 톤 반영 (spark/facilitator/signal)
 """
 
 import os
@@ -110,7 +111,7 @@ CATEGORY_RULES = [
     (r"(과도|무리|버겁|부담|강도\s*높|시간\s*길|빡세)", "과도한 목표 설정"),
     (r"(시간\s*부족|바쁨|업무|과제|시험|마감|출근|등교)", "시간 부족"),
     (r"(일정\s*충돌|외출|약속|모임|여행|주말|공휴일)", "일정 충돌"),
-    (r"(날씨|더움|추움|비|폭염|폭우|한파)", "기타 (직접 입력)"),
+    (r"(날씨|더움|추움|비|폭염|폭우|한파|우울|기분|짜증|화)", "기타 (직접 입력)"),
 ]
 def normalize_reason_category(text: str) -> str:
     t = (text or "").lower().strip()
@@ -160,11 +161,53 @@ def compute_per_habit_top_failure_reasons(active_habits, topk=2):
         for r in final_reasons:
             norm = normalize_reason_category(r)
             icon = guess_emoji_from_text(r) if norm == "기타 (직접 입력)" else REASON_ICON_MAP.get(norm, "💬")
-            reasons.append([r, icon])
+            reasons.append({"reason": r, "icon": icon})
         result.append({"habit_id": hid, "name": name, "reasons": reasons})
     return result
 
-# ===== summary 생성 =====
+# ===== MAP 진단 유틸 (요약 카피용, 최소 변경) =====
+def _collect_fail_labels_from_habits(habits):
+    labels = []
+    total, success = 0, 0
+    for h in habits:
+        logs = h.get("habit_log", [])
+        total += len(logs)
+        success += sum(1 for l in logs if l.get("completed"))
+        for l in logs:
+            if l.get("completed"):
+                continue
+            for raw in (l.get("failure_reason") or []):
+                labels.append(normalize_reason_category(raw))
+    rate = (success / total) if total else 0.0
+    return labels, rate
+
+def infer_overall_map_state(habits, overall_rate: float):
+    """
+    habits와 전체 성공률로 동기/능력 상태를 간단히 추정해
+    요약 카피 톤을 결정(spark/facilitator/signal)하는 휴리스틱.
+    """
+    labels, _ = _collect_fail_labels_from_habits(habits)
+    c = Counter(labels)
+
+    # Ability 낮음 신호: 시간/일정/과도 목표
+    ability_low = c["시간 부족"] + c["일정 충돌"] + c["과도한 목표 설정"]
+    # Motivation 낮음 신호: 의지 부족
+    motivation_low = c["의지 부족"]
+
+    ability = "low" if ability_low >= 2 else ("medium" if ability_low == 1 else "high")
+    # 성공률이 많이 낮으면 동기 저하로 가정
+    motivation = "low" if motivation_low >= 2 else ("medium" if motivation_low == 1 else ("low" if overall_rate < 30 else "high"))
+
+    if motivation == "low":
+        prompt = "spark"         # 의지 불붙이기
+    elif ability == "low":
+        prompt = "facilitator"   # 난이도/복잡도 낮추기
+    else:
+        prompt = "signal"        # 조용한 '지금 시작' 신호
+
+    return {"motivation": motivation, "ability": ability, "prompt_type": prompt}
+
+# ===== summary 생성 (B=MAP 카피 반영) =====
 def flatten_reasons_from_top_fail(failure_data):
     out = []
     for h in (failure_data or []):
@@ -175,13 +218,21 @@ def flatten_reasons_from_top_fail(failure_data):
 def generate_summary(nickname, habits, failure_data, rate):
     """
     주간/월간 공통 summary 생성
-    - success_rate (전체 꾸준함 지수) 기준으로 consistency 문장 생성
+    - success_rate(전체 꾸준함 지수) + B=MAP(프롬프트 톤) 반영 카피
+    - 출력: {consistency, failure_reasons, daily_pattern, courage}
     """
-    # 1️⃣ 꾸준함 문장
-    consistency = f"바쁜 기간 속에서 {rate:.1f}%나 해냈다는 건 {nickname}님의 꾸준함이 돋보입니다." \
-        if rate > 40 else "이번 기간은 새로운 시작을 위한 준비 기간이었어요."
+    # MAP 상태 추정(요약 카피 톤 결정)
+    map_state = infer_overall_map_state(habits, rate)  # {'motivation','ability','prompt_type'}
+    pt = map_state["prompt_type"]
 
-    # 2️⃣ 주요 실패 원인
+    # 1️⃣ 꾸준함 문장 (+ 프롬프트 톤 꼬리문장)
+    consistency = (
+        f"바쁜 기간 속에서 {rate:.1f}%나 해냈다는 건 {nickname}님의 꾸준함이 돋보입니다."
+        if rate > 40 else
+        "이번 기간은 새로운 시작을 위한 준비 기간이었어요."
+    )
+
+    # 2️⃣ 주요 실패 원인 (필요 시 Tiny 제안 한 줄)
     all_reasons = flatten_reasons_from_top_fail(failure_data)
     if all_reasons:
         most_common, _ = Counter(all_reasons).most_common(1)[0]
@@ -192,10 +243,13 @@ def generate_summary(nickname, habits, failure_data, rate):
         else:
             icon = REASON_ICON_MAP.get(norm, "💬")
             failure_reasons = f"가장 자주 등장한 방해 요인은 {icon} '{most_common}'이에요."
+        # Ability 낮음(퍼실리테이터)일 땐 '가벼운 대안'을 짧게 제안
+        if pt == "facilitator":
+            failure_reasons += " → 이번 주는 '5분만/한 단계만'으로 가볍게 시작해봐요."
     else:
         failure_reasons = "이번 기간은 큰 방해 없이 잘 이어졌어요."
 
-    # 3️⃣ 요일 패턴
+    # 3️⃣ 요일 패턴 (그대로)
     weekday_success, weekday_total = Counter(), Counter()
     for h in habits:
         for log in h.get("habit_log", []):
@@ -213,8 +267,12 @@ def generate_summary(nickname, habits, failure_data, rate):
     else:
         daily_pattern = "요일별 패턴을 확인할 데이터가 부족했어요."
 
-    # 4️⃣ 응원 문장
-    courage = "작은 꾸준함이 쌓여 결국 큰 변화를 만들어냅니다. 다음에도 응원할게요!"
+    # 4️⃣ 응원 문장(프롬프트 톤별 카피)
+    courage = {
+        "spark": "작은 행동에도 마음이 움직입니다. 오늘의 1분이 내일의 루틴으로 이어질 거예요.",
+        "facilitator": "시작은 언제나 작을수록 좋아요. 부담 없이 한 걸음만 내딛어봐요.",
+        "signal": "지금 흐름이 아주 좋아요. 이 느낌 그대로 이어가면 충분합니다."
+    }[pt]
 
     return {
         "consistency": consistency,
@@ -223,7 +281,7 @@ def generate_summary(nickname, habits, failure_data, rate):
         "courage": courage
     }
 
-# ===== recommendation 생성 =====
+# ===== recommendation 생성 (원본 유지) =====
 def generate_recommendations(habits):
     recs = []
     for h in habits:
@@ -276,8 +334,8 @@ def main():
         level = consistency_level_from_rate(rate)
         parsed["consistency_index"] = {
             "success_rate": round(rate, 1),
-            "level": level,
-            "thresholds": CONSISTENCY_THRESHOLDS,
+            # "level": level,
+            # "thresholds": CONSISTENCY_THRESHOLDS,
             "display_message": f"꾸준함 지수: {level}" + (" 🔥" if level=="높음" else (" 🙂" if level=="보통" else " 🌧️"))
         }
 
