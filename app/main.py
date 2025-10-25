@@ -62,8 +62,6 @@ class GenerateRunResponseItem(BaseModel):
     user_id: int
     nickname: str
     type: str
-    start_date: str
-    end_date: str
     top_failure_reasons: List[Dict[str, Any]]
     consistency_index: Dict[str, Any]
     summary: Dict[str, Any]
@@ -78,11 +76,9 @@ class GenerateRunResponse(BaseModel):
 
 # ===================== 내부 유틸 =====================
 def _calc_period_by_type(report_type: str):
+    """No longer used for date filtering, kept for compatibility"""
     report_type = (report_type or "monthly").lower()
-    days = 7 if report_type == "weekly" else 30
-    end_date = datetime.today().date()
-    start_date = end_date - timedelta(days=days)
-    return str(start_date), str(end_date), days
+    return "", "", 0
 
 def _normalize_times_in_habits(habits: List[dict]) -> List[dict]:
     normed = []
@@ -206,13 +202,12 @@ def _generate_for_bundle(bundle: Dict[str, Any]) -> GenerateRunResponseItem:
         user_id = bundle["user_id"]
         nickname = bundle.get("nickname", str(user_id))
         habits_all = _normalize_times_in_habits(bundle.get("habits", []))
-        start_date, end_date, filter_days = _calc_period_by_type(t)
 
-        active_habits = [h for h in minutes_filter_copy(habits_all, filter_days) if h.get("habit_log")]
+        active_habits = [h for h in minutes_filter_copy(habits_all) if h.get("habit_log")]
         if not active_habits:
-            raise HTTPException(status_code=404, detail=f"{nickname}: 최근 {filter_days}일 데이터 없음")
+            raise HTTPException(status_code=404, detail=f"{nickname}: 데이터 없음")
 
-        parsed = {"start_date": start_date, "end_date": end_date}
+        parsed = {}
 
         top_fail = compute_per_habit_top_failure_reasons(active_habits, topk=2)
         rate = compute_overall_success_rate(active_habits)
@@ -263,7 +258,7 @@ def run_from_data():
         except Exception as e:
             results.append(GenerateRunResponseItem(
                 user_id=-1, nickname=filename, type="unknown",
-                start_date="", end_date="", top_failure_reasons=[], consistency_index={},
+                top_failure_reasons=[], consistency_index={},
                 summary={}, recommendation=[], error=str(e)
             ))
     if not any_found:

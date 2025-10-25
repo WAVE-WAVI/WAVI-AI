@@ -86,12 +86,12 @@ def minutes_between(start_hhmm: str, end_hhmm: str) -> int:
 def add_minutes(hhmm: str, delta: int) -> str:
     return (parse_hhmm(hhmm) + timedelta(minutes=delta)).strftime("%H:%M")
 
-def extract_last_days_logs(logs, days: int):
-    today = datetime.today().date()
-    from_date = today - timedelta(days=days)
-    return [log for log in logs if from_date <= datetime.strptime(log["date"], "%Y-%m-%d").date() <= today]
+def extract_all_logs(logs):
+    """Return all logs without date filtering"""
+    return logs
 
-def minutes_filter_copy(habits, days: int):
+def minutes_filter_copy(habits):
+    """Copy habits with all logs, no date filtering"""
     out = []
     for h in habits:
         out.append({
@@ -100,7 +100,7 @@ def minutes_filter_copy(habits, days: int):
             "day_of_week": h.get("day_of_week", []),
             "start_time": h.get("start_time"),
             "end_time": h.get("end_time"),
-            "habit_log": extract_last_days_logs(h.get("habit_log", []), days),
+            "habit_log": extract_all_logs(h.get("habit_log", [])),
         })
     return out
 
@@ -317,14 +317,11 @@ def main():
         user_id, nickname = data["user_id"], data.get("nickname", str(data["user_id"]))
         report_type = (data.get("type") or "monthly").lower()
         if report_type not in ("weekly", "monthly"): report_type = "monthly"
-        filter_days = 7 if report_type == "weekly" else 30
         output_dir = OUTPUT_DIRS[report_type]
         habits_all = data.get("habits", [])
-        active_habits = [h for h in minutes_filter_copy(habits_all, filter_days) if h.get("habit_log")]
+        active_habits = [h for h in minutes_filter_copy(habits_all) if h.get("habit_log")]
         if not active_habits: continue
-        end_date = datetime.today().date()
-        start_date = end_date - timedelta(days=filter_days)
-        parsed = {"start_date": str(start_date), "end_date": str(end_date)}
+        parsed = {}
 
         # 공통 구성요소 (weekly/monthly 동일)
         top_fail = compute_per_habit_top_failure_reasons(active_habits, 2)
